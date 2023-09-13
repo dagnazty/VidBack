@@ -28,14 +28,6 @@ Screenshot taker and video uploader via Discord webhook.
 >
 >Every video file gets a screenshot taken and uploaded before the zip folders are. 
 
-## Download Instructions
-
-**Step 1:** Download all folders to the same directory. 
-
-**Step 2:** Right click "UClips-Folder.zip.001" and select 7-zip ➜ Open Archive.
-
-**Step 3:** Drag and drop to directory of your liking.
-
 >[!NOTE]
 >You can add this powershell to your Stream Deck following the instructions below and removing <>.
 >Show Powershell
@@ -47,6 +39,14 @@ Screenshot taker and video uploader via Discord webhook.
 >Select Plugin ▼System ➜ Open
 In the App/File field, enter:
 >cmd /c start /min "" powershell -WindowStyle Hidden -executionpolicy bypass -noninteractive <path to your powershell script>\<your power shell script name>.ps1 'param1' 'param3' 'param3'
+
+## Download Instructions
+
+**Step 1:** Download all folders to the same directory. 
+
+**Step 2:** Right click "UClips-Folder.zip.001" and select 7-zip ➜ Open Archive.
+
+**Step 3:** Drag and drop to directory of your liking.
 
 ## Legal
 Powershells from this repository are provided for educational purposes only. Powershells from dag are intended for authorized auditing and security analysis purposes only where permitted subject to local and international laws where applicable. Users are solely responsible for compliance with all laws of their locality. Dag and affiliates claim no responsibility for unauthorized or unlawful use.
