@@ -23,7 +23,7 @@ Screenshot taker and video uploader via Discord webhook.
 >**Items in UClips folder will be deleted after running!** To save space and keep clean. 
 
 **Step 4:** Run the powershell and let backup happen. 
->[NOTE]
+>[!NOTE]
 >If the video file or files are over 24 MB they will be split into as many zip folders as needed and uploaded.
 >
 >Every video file gets a screenshot taken and uploaded before the zip folders are. 
