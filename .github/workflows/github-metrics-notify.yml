@@ -42,12 +42,11 @@ jobs:
       - name: Fetch and Compare Metrics
         id: fetch_metrics
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}             # Built-in secret provided by GitHub Actions
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}               # Built-in secret provided by GitHub Actions
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} # Your Discord webhook URL
-          GITHUB_EVENT_NAME: ${{ github.event_name }}           # To determine if run is manual or scheduled
+          GITHUB_EVENT_NAME: ${{ github.event_name }}             # To determine if run is manual or scheduled
         run: |
-          TEMP_DIR=$(mktemp -d)
-          python3 - <<'EOF' > "$TEMP_DIR/fetch_metrics.out"
+          python3 - <<'EOF' > fetch_metrics.out
           import os
           import requests
           import json
@@ -251,7 +250,7 @@ jobs:
                   })
 
               # Save payload to a temporary file for the next step
-              with open("$TEMP_DIR/payload.json", 'w') as f:
+              with open('payload.json', 'w') as f:
                   json.dump(payload, f)
 
               # Output whether to send notification
@@ -261,9 +260,33 @@ jobs:
                   print("SEND_NOTIFICATION=false")
           else:
               print("SEND_NOTIFICATION=false")
-              EOF
+          EOF
 
-      # Step 5: Decide Whether to Send Notification
+      # Step 5: Ensure .gitignore Ignores Temporary Files
+      - name: Ensure .gitignore Ignores Temporary Files
+        run: |
+          # Check if .gitignore exists; if not, create it
+          if [ ! -f .gitignore ]; then
+            touch .gitignore
+          fi
+
+          # Add 'fetch_metrics.out' if not present
+          if ! grep -Fxq "fetch_metrics.out" .gitignore; then
+            echo "fetch_metrics.out" >> .gitignore
+            echo "Added 'fetch_metrics.out' to .gitignore"
+          else
+            echo "'fetch_metrics.out' already present in .gitignore"
+          fi
+
+          # Add 'payload.json' if not present
+          if ! grep -Fxq "payload.json" .gitignore; then
+            echo "payload.json" >> .gitignore
+            echo "Added 'payload.json' to .gitignore"
+          else
+            echo "'payload.json' already present in .gitignore"
+          fi
+
+      # Step 6: Decide Whether to Send Notification
       - name: Check if Notification Should Be Sent
         id: decide_notification
         run: |
@@ -271,20 +294,35 @@ jobs:
             echo "send=true" >> $GITHUB_OUTPUT
           else
             echo "send=false" >> $GITHUB_OUTPUT
-          fi
+        shell: bash
 
-      # Step 6: Send Discord Notification using curl
+      # Step 7: Send Discord Notification using curl
       - name: Send Discord Notification
         if: steps.decide_notification.outputs.send == 'true'
         run: |
           curl -H "Content-Type: application/json" -d @payload.json ${{ secrets.DISCORD_WEBHOOK_URL }}
 
-      # Step 7: Commit and Push metrics.json
-      - name: Commit and Push metrics.json
+      # Step 8: Commit and Push Updated metrics.json and .gitignore
+      - name: Commit and Push Changes
         if: steps.decide_notification.outputs.send == 'true'
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          
+          # Stage metrics.json
           git add .github/metrics.json
-          git commit -m "Update metrics.json [skip ci]"
+          
+          # Stage .gitignore only if it was modified
+          git diff --name-only | grep -q "^\.gitignore$" && git add .gitignore || echo ".gitignore not modified"
+          
+          # Commit changes if there are any
+          git commit -m "Update metrics.json and ensure temporary files are ignored [skip ci]" || echo "No changes to commit"
+          
+          # Push changes to the main branch
           git push origin main  # Replace 'main' with your default branch if different
+
+      # Step 9: Clean Up Temporary Files
+      - name: Clean Up Temporary Files
+        if: always()
+        run: |
+          rm -f fetch_metrics.out payload.json
