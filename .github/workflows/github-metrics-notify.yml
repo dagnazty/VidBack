@@ -50,11 +50,26 @@ jobs:
           REPO_NAME = "VidBack"         # Replace with your repository name
           METRICS_FILE = ".github/metrics.json"
 
+          # Ensure .github directory exists
+          os.makedirs(os.path.dirname(METRICS_FILE), exist_ok=True)
+
           # GitHub API Headers
           headers = {
               "Authorization": f"token {os.getenv('GITHUB_TOKEN')}",
               "Accept": "application/vnd.github.v3+json"
           }
+
+          # Function to fetch closed issues count using GitHub Search API
+          def fetch_closed_issues(owner, repo, headers):
+              search_api = f"https://api.github.com/search/issues?q=repo:{owner}/{repo}+type:issue+state:closed"
+              try:
+                  response = requests.get(search_api, headers=headers)
+                  response.raise_for_status()
+                  data = response.json()
+                  return data.get('total_count', 0)
+              except requests.exceptions.RequestException as e:
+                  print(f"Error fetching closed issues count: {e}")
+                  return 0
 
           # Fetch current metrics from GitHub API
           repo_api = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
@@ -67,16 +82,25 @@ jobs:
               forks = repo_data.get('forks_count', 0)
               followers = repo_data.get('subscribers_count', 0)
               open_issues = repo_data.get('open_issues_count', 0)
+              closed_issues = fetch_closed_issues(REPO_OWNER, REPO_NAME, headers)
           except requests.exceptions.RequestException as e:
               print(f"Error fetching repository data: {e}")
               exit(1)
 
-          # Load previous metrics
+          # Check if metrics file exists to determine if it's the initial run
           if os.path.exists(METRICS_FILE):
               with open(METRICS_FILE, 'r') as file:
                   prev_metrics = json.load(file)
+              is_initial_run = False
           else:
-              prev_metrics = {"stars": 0, "forks": 0, "followers": 0, "open_issues": 0}
+              prev_metrics = {
+                  "stars": 0,
+                  "forks": 0,
+                  "followers": 0,
+                  "open_issues": 0,
+                  "closed_issues": 0
+              }
+              is_initial_run = True
 
           # Determine changes
           changes = {}
@@ -88,13 +112,16 @@ jobs:
               changes["followers"] = followers - prev_metrics["followers"]
           if open_issues > prev_metrics.get("open_issues", 0):
               changes["open_issues"] = open_issues - prev_metrics["open_issues"]
+          if closed_issues > prev_metrics.get("closed_issues", 0):
+              changes["closed_issues"] = closed_issues - prev_metrics["closed_issues"]
 
           # Update metrics file
           new_metrics = {
               "stars": stars,
               "forks": forks,
               "followers": followers,
-              "open_issues": open_issues
+              "open_issues": open_issues,
+              "closed_issues": closed_issues
           }
           with open(METRICS_FILE, 'w') as file:
               json.dump(new_metrics, file)
@@ -103,16 +130,26 @@ jobs:
           event_name = os.getenv('GITHUB_EVENT_NAME')
           send_notification = False
           no_changes = False
+          initial_setup = False
 
-          if event_name == 'workflow_dispatch':
-              # Manual run: Always send notification
-              send_notification = True
-              if not changes:
-                  no_changes = True
-          elif event_name == 'schedule':
-              # Scheduled run: Send notification only if there are changes
-              if changes:
+          if is_initial_run:
+              if event_name == 'workflow_dispatch':
+                  # Manual run: Send notification for initial setup
                   send_notification = True
+                  initial_setup = True
+              elif event_name == 'schedule':
+                  # Scheduled run: Do not send notification on initial setup
+                  send_notification = False
+          else:
+              if event_name == 'workflow_dispatch':
+                  # Manual run: Always send notification
+                  send_notification = True
+                  if not changes:
+                      no_changes = True
+              elif event_name == 'schedule':
+                  # Scheduled run: Send notification only if there are changes
+                  if changes:
+                      send_notification = True
 
           if send_notification:
               # Prepare Discord notification payload
@@ -150,6 +187,11 @@ jobs:
                                   "value": f"{open_issues}",
                                   "inline": True
                               },
+                              {
+                                  "name": "🔒 Closed Issues",
+                                  "value": f"{closed_issues}",
+                                  "inline": True
+                              },
                           ],
                           "footer": {
                               "text": "GitHub Metrics Monitor",
@@ -160,14 +202,22 @@ jobs:
                   ]
               }
 
-              if changes:
+              if initial_setup:
+                  # Add a field indicating initial setup
+                  payload["embeds"][0]["fields"].append({
+                      "name": "⚙️ Initial Setup",
+                      "value": "Metrics tracking has been initialized.",
+                      "inline": False
+                  })
+              elif changes:
                   # Add fields for each updated metric
                   for metric, count in changes.items():
                       emoji = {
                           "stars": "⭐",
                           "forks": "🍴",
                           "followers": "👥",
-                          "open_issues": "🐛"
+                          "open_issues": "🐛",
+                          "closed_issues": "🔒"
                       }.get(metric, "")
                       change_symbol = "+" if count > 0 else ""
                       payload["embeds"][0]["fields"].append({
