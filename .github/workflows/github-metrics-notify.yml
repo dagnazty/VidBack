@@ -2,11 +2,17 @@
 
 name: GitHub Metrics Notification
 
+# Grants specific permissions to the GITHUB_TOKEN
+permissions:
+  contents: write         # Allows pushing changes to the repository
+  issues: read            # Optional: if you're interacting with issues
+  pull-requests: write    # Optional: if you're interacting with pull requests
+
 # Triggers the workflow every hour and allows manual triggering
 on:
   schedule:
     - cron: '0 */1 * * *' # Every hour at minute 0
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:       # Allows manual triggering
 
 jobs:
   notify_metrics:
@@ -17,14 +23,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
         with:
-          persist-credentials: true # Enable Git commands to use GITHUB_TOKEN
-          fetch-depth: 0 # Fetch all history for accurate metric tracking
+          persist-credentials: true # Enables Git commands to use GITHUB_TOKEN
+          fetch-depth: 0            # Fetch all history for accurate metric tracking
 
       # Step 2: Set Up Python Environment
       - name: Set Up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x' # Specify the Python version
+          python-version: '3.x'     # Specify the Python version
 
       # Step 3: Install Python Dependencies
       - name: Install Dependencies
@@ -36,9 +42,9 @@ jobs:
       - name: Fetch and Compare Metrics
         id: fetch_metrics
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Built-in secret provided by GitHub Actions
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}             # Built-in secret provided by GitHub Actions
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} # Your Discord webhook URL
-          GITHUB_EVENT_NAME: ${{ github.event_name }} # To determine if run is manual or scheduled
+          GITHUB_EVENT_NAME: ${{ github.event_name }}           # To determine if run is manual or scheduled
         run: |
           python3 - <<'EOF' > fetch_metrics.out
           import os
@@ -254,7 +260,7 @@ jobs:
                   print("SEND_NOTIFICATION=false")
           else:
               print("SEND_NOTIFICATION=false")
-          EOF
+              EOF
 
       # Step 5: Decide Whether to Send Notification
       - name: Check if Notification Should Be Sent
