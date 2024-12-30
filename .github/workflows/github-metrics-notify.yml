@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
         with:
-          persist-credentials: false # Ensure GITHUB_TOKEN is not passed to the subprocess
+          persist-credentials: true # Enable Git commands to use GITHUB_TOKEN
           fetch-depth: 0 # Fetch all history for accurate metric tracking
 
       # Step 2: Set Up Python Environment
@@ -34,6 +34,7 @@ jobs:
 
       # Step 4: Fetch and Compare Metrics
       - name: Fetch and Compare Metrics
+        id: fetch_metrics
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Built-in secret provided by GitHub Actions
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} # Your Discord webhook URL
@@ -87,44 +88,53 @@ jobs:
               print(f"Error fetching repository data: {e}")
               exit(1)
 
-          # Check if metrics file exists to determine if it's the initial run
-          if os.path.exists(METRICS_FILE):
-              with open(METRICS_FILE, 'r') as file:
-                  prev_metrics = json.load(file)
-              is_initial_run = False
-          else:
-              prev_metrics = {
-                  "stars": 0,
-                  "forks": 0,
-                  "followers": 0,
-                  "open_issues": 0,
-                  "closed_issues": 0
-              }
-              is_initial_run = True
+          # Function to load previous metrics with error handling
+          def load_previous_metrics(file_path):
+              try:
+                  with open(file_path, 'r') as file:
+                      return json.load(file)
+              except json.decoder.JSONDecodeError:
+                  print("metrics.json is corrupted or empty. Reinitializing.")
+                  return {
+                      "stars": 0,
+                      "forks": 0,
+                      "followers": 0,
+                      "open_issues": 0,
+                      "closed_issues": 0
+                  }
+              except FileNotFoundError:
+                  return {
+                      "stars": 0,
+                      "forks": 0,
+                      "followers": 0,
+                      "open_issues": 0,
+                      "closed_issues": 0
+                  }
 
-          # Determine changes
+          # Load previous metrics
+          prev_metrics = load_previous_metrics(METRICS_FILE)
+          is_initial_run = not os.path.exists(METRICS_FILE)
+
+          # Determine changes (both increases and decreases)
           changes = {}
-          if stars > prev_metrics.get("stars", 0):
-              changes["stars"] = stars - prev_metrics["stars"]
-          if forks > prev_metrics.get("forks", 0):
-              changes["forks"] = forks - prev_metrics["forks"]
-          if followers > prev_metrics.get("followers", 0):
-              changes["followers"] = followers - prev_metrics["followers"]
-          if open_issues > prev_metrics.get("open_issues", 0):
-              changes["open_issues"] = open_issues - prev_metrics["open_issues"]
-          if closed_issues > prev_metrics.get("closed_issues", 0):
-              changes["closed_issues"] = closed_issues - prev_metrics["closed_issues"]
-
-          # Update metrics file
-          new_metrics = {
+          metrics = ["stars", "forks", "followers", "open_issues", "closed_issues"]
+          current_metrics = {
               "stars": stars,
               "forks": forks,
               "followers": followers,
               "open_issues": open_issues,
               "closed_issues": closed_issues
           }
+
+          for metric in metrics:
+              current = current_metrics.get(metric, 0)
+              previous = prev_metrics.get(metric, 0)
+              if current != previous:
+                  changes[metric] = current - previous
+
+          # Update metrics file
           with open(METRICS_FILE, 'w') as file:
-              json.dump(new_metrics, file)
+              json.dump(current_metrics, file)
 
           # Determine if a notification should be sent
           event_name = os.getenv('GITHUB_EVENT_NAME')
@@ -233,13 +243,43 @@ jobs:
                       "inline": False
                   })
 
-              # Send Discord notification
-              response = requests.post(os.getenv('DISCORD_WEBHOOK_URL'), json=payload)
-              if response.status_code not in [200, 204]:
-                  print(f"Failed to send Discord notification: {response.text}")
-                  exit(1)
+              # Save payload to a temporary file for the next step
+              with open('payload.json', 'w') as f:
+                  json.dump(payload, f)
+
+              # Output whether to send notification
+              if initial_setup or changes or no_changes:
+                  print("SEND_NOTIFICATION=true")
               else:
-                  print("Discord notification sent successfully.")
-          else:
-              print("No changes in metrics. No notification sent.")
-          EOF
+                  print("SEND_NOTIFICATION=false")
+              EOF
+
+      # Step 5: Decide Whether to Send Notification
+      - name: Check if Notification Should Be Sent
+        id: decide_notification
+        run: |
+          if grep -q "SEND_NOTIFICATION=true" fetch_metrics.out; then
+            echo "send=true" >> $GITHUB_OUTPUT
+          else
+            echo "send=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Step 6: Send Discord Notification
+      - name: Send Discord Notification
+        if: steps.decide_notification.outputs.send == 'true'
+        uses: fjogeleit/http-request-action@v2
+        with:
+          url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          method: 'POST'
+          headers: '{"Content-Type": "application/json"}'
+          body: '${{ steps.fetch_metrics.outputs.payload }}'
+
+      # Step 7: Commit and Push Updated metrics.json
+      - name: Commit and Push metrics.json
+        if: steps.decide_notification.outputs.send == 'true'
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add .github/metrics.json
+          git commit -m "Update metrics.json [skip ci]"
+          git push origin main  # Replace 'main' with your default branch if different
