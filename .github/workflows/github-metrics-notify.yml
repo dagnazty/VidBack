@@ -66,6 +66,7 @@ jobs:
               stars = repo_data.get('stargazers_count', 0)
               forks = repo_data.get('forks_count', 0)
               followers = repo_data.get('subscribers_count', 0)
+              open_issues = repo_data.get('open_issues_count', 0)
           except requests.exceptions.RequestException as e:
               print(f"Error fetching repository data: {e}")
               exit(1)
@@ -75,7 +76,7 @@ jobs:
               with open(METRICS_FILE, 'r') as file:
                   prev_metrics = json.load(file)
           else:
-              prev_metrics = {"stars": 0, "forks": 0, "followers": 0}
+              prev_metrics = {"stars": 0, "forks": 0, "followers": 0, "open_issues": 0}
 
           # Determine changes
           changes = {}
@@ -85,9 +86,16 @@ jobs:
               changes["forks"] = forks - prev_metrics["forks"]
           if followers > prev_metrics.get("followers", 0):
               changes["followers"] = followers - prev_metrics["followers"]
+          if open_issues > prev_metrics.get("open_issues", 0):
+              changes["open_issues"] = open_issues - prev_metrics["open_issues"]
 
           # Update metrics file
-          new_metrics = {"stars": stars, "forks": forks, "followers": followers}
+          new_metrics = {
+              "stars": stars,
+              "forks": forks,
+              "followers": followers,
+              "open_issues": open_issues
+          }
           with open(METRICS_FILE, 'w') as file:
               json.dump(new_metrics, file)
 
@@ -137,6 +145,11 @@ jobs:
                                   "value": f"{followers}",
                                   "inline": True
                               },
+                              {
+                                  "name": "🐛 Open Issues",
+                                  "value": f"{open_issues}",
+                                  "inline": True
+                              },
                           ],
                           "footer": {
                               "text": "GitHub Metrics Monitor",
@@ -150,10 +163,16 @@ jobs:
               if changes:
                   # Add fields for each updated metric
                   for metric, count in changes.items():
-                      emoji = {"stars": "⭐", "forks": "🍴", "followers": "👥"}.get(metric, "")
+                      emoji = {
+                          "stars": "⭐",
+                          "forks": "🍴",
+                          "followers": "👥",
+                          "open_issues": "🐛"
+                      }.get(metric, "")
+                      change_symbol = "+" if count > 0 else ""
                       payload["embeds"][0]["fields"].append({
-                          "name": f"{emoji} {metric.capitalize()} (Change)",
-                          "value": f"+{count}",
+                          "name": f"{emoji} {metric.replace('_', ' ').capitalize()} (Change)",
+                          "value": f"{change_symbol}{count}",
                           "inline": True
                       })
               elif no_changes:
