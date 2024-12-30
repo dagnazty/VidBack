@@ -2,9 +2,10 @@
 
 name: GitHub Metrics Notification
 
+# Trigger the workflow every hour and allow manual triggering
 on:
   schedule:
-    - cron: '0 */1 * * *' # Every hour
+    - cron: '0 */1 * * *' # Every hour at minute 0
   workflow_dispatch: # Allows manual triggering
 
 jobs:
@@ -12,34 +13,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout the repository
       - name: Checkout Repository
         uses: actions/checkout@v3
         with:
           persist-credentials: false # Ensure GITHUB_TOKEN is not passed to the subprocess
           fetch-depth: 0 # Fetch all history for accurate metric tracking
 
+      # Step 2: Set Up Python Environment
       - name: Set Up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.x' # Specify the Python version
 
+      # Step 3: Install Python Dependencies
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests
 
+      # Step 4: Fetch and Compare Metrics
       - name: Fetch and Compare Metrics
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Built-in secret provided by GitHub Actions
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} # Your Discord webhook URL
         run: |
-          python3 - <<EOF
+          python3 - <<'EOF'
           import os
           import requests
           import json
 
           # Configuration
-          REPO_OWNER, REPO_NAME = "dagnazty", "VidBack"
+          REPO_OWNER = "dagnazty"       # Replace with your GitHub username
+          REPO_NAME = "VidBack"         # Replace with your repository name
           METRICS_FILE = ".github/metrics.json"
 
           # GitHub API Headers
@@ -48,23 +54,24 @@ jobs:
               "Accept": "application/vnd.github.v3+json"
           }
 
-          # Fetch current metrics
+          # Fetch current metrics from GitHub API
           repo_api = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
-          
+
           try:
-              repo_response = requests.get(repo_api, headers=headers)
-              repo_response.raise_for_status()
-              repo_data = repo_response.json()
+              response = requests.get(repo_api, headers=headers)
+              response.raise_for_status()
+              repo_data = response.json()
               stars = repo_data.get('stargazers_count', 0)
               forks = repo_data.get('forks_count', 0)
               followers = repo_data.get('subscribers_count', 0)
           except requests.exceptions.RequestException as e:
-              raise SystemExit(f"Failed to fetch repository data: {e}")
+              print(f"Error fetching repository data: {e}")
+              exit(1)
 
           # Load previous metrics
           if os.path.exists(METRICS_FILE):
-              with open(METRICS_FILE, 'r') as f:
-                  prev_metrics = json.load(f)
+              with open(METRICS_FILE, 'r') as file:
+                  prev_metrics = json.load(file)
           else:
               prev_metrics = {"stars": 0, "forks": 0, "followers": 0}
 
@@ -79,45 +86,40 @@ jobs:
 
           # Update metrics file
           new_metrics = {"stars": stars, "forks": forks, "followers": followers}
-          with open(METRICS_FILE, 'w') as f:
-              json.dump(new_metrics, f)
+          with open(METRICS_FILE, 'w') as file:
+              json.dump(new_metrics, file)
 
-          # Commit changes if there are updates
+          # Commit and push changes if there are updates
           if changes:
               # Configure Git
               os.system("git config user.name 'github-actions[bot]'")
               os.system("git config user.email 'github-actions[bot]@users.noreply.github.com'")
-              
+
               # Add and commit changes
               os.system(f"git add {METRICS_FILE}")
               commit_message = f"Update metrics: {json.dumps(new_metrics)}"
               os.system(f"git commit -m '{commit_message}'")
 
-              # Push changes
-              # Use the built-in GITHUB_TOKEN by embedding it in the push URL
+              # Push changes to the default branch
               push_url = f"https://x-access-token:{os.getenv('GITHUB_TOKEN')}@github.com/{REPO_OWNER}/{REPO_NAME}.git"
-              os.system(f"git push {push_url} HEAD:main")  # Replace 'main' with your default branch if different
+              os.system(f"git push {push_url} HEAD:main") # Replace 'main' with your default branch if different
 
-              # Prepare Discord message
+              # Prepare Discord notification payload
               message = "**GitHub Repository Metrics Updated**\n"
-              message += f"Repository: **{REPO_OWNER}/{REPO_NAME}**\n"
+              message += f"**Repository:** `{REPO_OWNER}/{REPO_NAME}`\n"
               for metric, count in changes.items():
-                  emoji = {
-                      "stars": "⭐",
-                      "forks": "🍴",
-                      "followers": "👥"
-                  }.get(metric, "")
+                  emoji = {"stars": "⭐", "forks": "🍴", "followers": "👥"}.get(metric, "")
                   message += f"{emoji} **{metric.capitalize()}:** +{count}\n"
 
-              # Optionally, use embeds for richer messages
+              # Discord embed payload
               payload = {
                   "content": message,
                   "embeds": [
                       {
                           "title": "GitHub Repository Metrics Updated",
-                          "color": 15258703,
+                          "color": 15258703, # Hex color code
                           "fields": [
-                              {"name": "Repository", "value": f"**{REPO_OWNER}/{REPO_NAME}**", "inline": False},
+                              {"name": "Repository", "value": f"`{REPO_OWNER}/{REPO_NAME}`", "inline": False},
                           ]
                       }
                   ]
@@ -125,11 +127,7 @@ jobs:
 
               # Add metric changes to the embed
               for metric, count in changes.items():
-                  emoji = {
-                      "stars": "⭐",
-                      "forks": "🍴",
-                      "followers": "👥"
-                  }.get(metric, "")
+                  emoji = {"stars": "⭐", "forks": "🍴", "followers": "👥"}.get(metric, "")
                   payload["embeds"][0]["fields"].append({
                       "name": f"{emoji} {metric.capitalize()}",
                       "value": f"+{count}",
@@ -139,7 +137,8 @@ jobs:
               # Send Discord notification
               response = requests.post(os.getenv('DISCORD_WEBHOOK_URL'), json=payload)
               if response.status_code not in [200, 204]:
-                  raise SystemExit(f"Failed to send Discord notification: {response.text}")
+                  print(f"Failed to send Discord notification: {response.text}")
+                  exit(1)
           else:
               print("No changes in metrics.")
           EOF
