@@ -46,7 +46,8 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} # Your Discord webhook URL
           GITHUB_EVENT_NAME: ${{ github.event_name }}           # To determine if run is manual or scheduled
         run: |
-          python3 - <<'EOF' > fetch_metrics.out
+          TEMP_DIR=$(mktemp -d)
+          python3 - <<'EOF' > "$TEMP_DIR/fetch_metrics.out"
           import os
           import requests
           import json
@@ -250,7 +251,7 @@ jobs:
                   })
 
               # Save payload to a temporary file for the next step
-              with open('payload.json', 'w') as f:
+              with open("$TEMP_DIR/payload.json", 'w') as f:
                   json.dump(payload, f)
 
               # Output whether to send notification
@@ -278,7 +279,7 @@ jobs:
         run: |
           curl -H "Content-Type: application/json" -d @payload.json ${{ secrets.DISCORD_WEBHOOK_URL }}
 
-      # Step 7: Commit and Push Updated metrics.json
+      # Step 7: Commit and Push metrics.json
       - name: Commit and Push metrics.json
         if: steps.decide_notification.outputs.send == 'true'
         run: |
