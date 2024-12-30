@@ -2,7 +2,7 @@
 
 name: GitHub Metrics Notification
 
-# Trigger the workflow every hour and allow manual triggering
+# Triggers the workflow every hour and allows manual triggering
 on:
   schedule:
     - cron: '0 */1 * * *' # Every hour at minute 0
@@ -37,11 +37,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Built-in secret provided by GitHub Actions
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} # Your Discord webhook URL
+          GITHUB_EVENT_NAME: ${{ github.event_name }} # To determine if run is manual or scheduled
         run: |
           python3 - <<'EOF'
           import os
           import requests
           import json
+          from datetime import datetime
 
           # Configuration
           REPO_OWNER = "dagnazty"       # Replace with your GitHub username
@@ -89,49 +91,77 @@ jobs:
           with open(METRICS_FILE, 'w') as file:
               json.dump(new_metrics, file)
 
-          # Commit and push changes if there are updates
-          if changes:
-              # Configure Git
-              os.system("git config user.name 'github-actions[bot]'")
-              os.system("git config user.email 'github-actions[bot]@users.noreply.github.com'")
+          # Determine if a notification should be sent
+          event_name = os.getenv('GITHUB_EVENT_NAME')
+          send_notification = False
+          no_changes = False
 
-              # Add and commit changes
-              os.system(f"git add {METRICS_FILE}")
-              commit_message = f"Update metrics: {json.dumps(new_metrics)}"
-              os.system(f"git commit -m '{commit_message}'")
+          if event_name == 'workflow_dispatch':
+              # Manual run: Always send notification
+              send_notification = True
+              if not changes:
+                  no_changes = True
+          elif event_name == 'schedule':
+              # Scheduled run: Send notification only if there are changes
+              if changes:
+                  send_notification = True
 
-              # Push changes to the default branch
-              push_url = f"https://x-access-token:{os.getenv('GITHUB_TOKEN')}@github.com/{REPO_OWNER}/{REPO_NAME}.git"
-              os.system(f"git push {push_url} HEAD:main") # Replace 'main' with your default branch if different
-
+          if send_notification:
               # Prepare Discord notification payload
-              message = "**GitHub Repository Metrics Updated**\n"
-              message += f"**Repository:** `{REPO_OWNER}/{REPO_NAME}`\n"
-              for metric, count in changes.items():
-                  emoji = {"stars": "⭐", "forks": "🍴", "followers": "👥"}.get(metric, "")
-                  message += f"{emoji} **{metric.capitalize()}:** +{count}\n"
-
-              # Discord embed payload
               payload = {
-                  "content": message,
                   "embeds": [
                       {
-                          "title": "GitHub Repository Metrics Updated",
-                          "color": 15258703, # Hex color code
+                          "title": "📈 GitHub Repository Metrics Updated",
+                          "color": 0x7289DA,  # Discord blurple color
+                          "thumbnail": {
+                              "url": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"  # GitHub logo
+                          },
                           "fields": [
-                              {"name": "Repository", "value": f"`{REPO_OWNER}/{REPO_NAME}`", "inline": False},
-                          ]
+                              {
+                                  "name": "📂 Repository",
+                                  "value": f"`{REPO_OWNER}/{REPO_NAME}`",
+                                  "inline": False
+                              },
+                              {
+                                  "name": "⭐ Stars",
+                                  "value": f"{stars}",
+                                  "inline": True
+                              },
+                              {
+                                  "name": "🍴 Forks",
+                                  "value": f"{forks}",
+                                  "inline": True
+                              },
+                              {
+                                  "name": "👥 Followers",
+                                  "value": f"{followers}",
+                                  "inline": True
+                              },
+                          ],
+                          "footer": {
+                              "text": "GitHub Metrics Monitor",
+                              "icon_url": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"  # GitHub logo
+                          },
+                          "timestamp": datetime.utcnow().isoformat()  # Adds a timestamp to the embed
                       }
                   ]
               }
 
-              # Add metric changes to the embed
-              for metric, count in changes.items():
-                  emoji = {"stars": "⭐", "forks": "🍴", "followers": "👥"}.get(metric, "")
+              if changes:
+                  # Add fields for each updated metric
+                  for metric, count in changes.items():
+                      emoji = {"stars": "⭐", "forks": "🍴", "followers": "👥"}.get(metric, "")
+                      payload["embeds"][0]["fields"].append({
+                          "name": f"{emoji} {metric.capitalize()} (Change)",
+                          "value": f"+{count}",
+                          "inline": True
+                      })
+              elif no_changes:
+                  # Indicate that there were no changes during a manual run
                   payload["embeds"][0]["fields"].append({
-                      "name": f"{emoji} {metric.capitalize()}",
-                      "value": f"+{count}",
-                      "inline": True
+                      "name": "✅ No Changes",
+                      "value": "No updates to metrics since the last check.",
+                      "inline": False
                   })
 
               # Send Discord notification
@@ -139,6 +169,8 @@ jobs:
               if response.status_code not in [200, 204]:
                   print(f"Failed to send Discord notification: {response.text}")
                   exit(1)
+              else:
+                  print("Discord notification sent successfully.")
           else:
-              print("No changes in metrics.")
+              print("No changes in metrics. No notification sent.")
           EOF
