@@ -33,7 +33,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          #!/usr/bin/env python3
+          python3 - <<EOF
           import os
           import requests
           import json
@@ -94,9 +94,8 @@ jobs:
               os.system(f"git commit -m '{commit_message}'")
 
               # Push changes
-              # Use a separate GitHub token to avoid using the default one with limited permissions
-              # Here, using the default GITHUB_TOKEN with `actions/checkout` set to `persist-credentials: false`
-              push_url = repo_api.replace("https://api.github.com/repos/", "https://x-access-token:${GITHUB_TOKEN}@github.com/")
+              # Use the built-in GITHUB_TOKEN by embedding it in the push URL
+              push_url = f"https://x-access-token:{os.getenv('GITHUB_TOKEN')}@github.com/{REPO_OWNER}/{REPO_NAME}.git"
               os.system(f"git push {push_url} HEAD:main")  # Replace 'main' with your default branch if different
 
               # Prepare Discord message
@@ -143,3 +142,4 @@ jobs:
                   raise SystemExit(f"Failed to send Discord notification: {response.text}")
           else:
               print("No changes in metrics.")
+          EOF
